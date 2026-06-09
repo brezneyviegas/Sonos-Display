@@ -15,17 +15,19 @@ function curl(args, { binary = false } = {}) {
   });
 }
 
-function soap(host, action, body, service = 'AVTransport') {
+function soap(host, action, body, service = 'AVTransport', controlPath) {
   const urn = `urn:schemas-upnp-org:service:${service}:1`;
+  const path = controlPath || `/MediaRenderer/${service}/Control`;
   const envelope =
     '<?xml version="1.0" encoding="utf-8"?>' +
     '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" ' +
     's:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"><s:Body>' +
     `<u:${action} xmlns:u="${urn}">` +
-    `<InstanceID>0</InstanceID>${body || ''}</u:${action}>` +
+    (service === 'ZoneGroupTopology' ? '' : '<InstanceID>0</InstanceID>') +
+    `${body || ''}</u:${action}>` +
     '</s:Body></s:Envelope>';
   return curl([
-    `http://${host}:1400/MediaRenderer/${service}/Control`,
+    `http://${host}:1400${path}`,
     '-H', `SOAPACTION: "${urn}#${action}"`,
     '-H', 'Content-Type: text/xml; charset=utf-8',
     '--data-binary', envelope,
@@ -94,6 +96,43 @@ function setVolume(host, volume) {
     `<Channel>Master</Channel><DesiredVolume>${v}</DesiredVolume>`, 'RenderingControl');
 }
 
+// List every zone group in the household. One call to any speaker returns
+// the full topology, including bonded/invisible devices (subs, surrounds)
+// which are filtered out.
+async function listSpeakers(host) {
+  const xml = await soap(host, 'GetZoneGroupState', '', 'ZoneGroupTopology',
+    '/ZoneGroupTopology/Control');
+  const state = decodeEntities(tag(xml, 'ZoneGroupState'));
+  const speakers = [];
+  for (const groupXml of state.match(/<ZoneGroup [\s\S]*?<\/ZoneGroup>/g) || []) {
+    const coordinatorId = (groupXml.match(/Coordinator="([^"]+)"/) || [])[1];
+    const members = [];
+    let coordinator = null;
+    for (const m of groupXml.match(/<ZoneGroupMember [^>]*>/g) || []) {
+      const attr = name => {
+        const match = m.match(new RegExp(`${name}="([^"]*)"`));
+        return match ? decodeEntities(match[1]) : '';
+      };
+      if (attr('Invisible') === '1') continue;
+      const member = {
+        uuid: attr('UUID'),
+        room: attr('ZoneName'),
+        host: (attr('Location').match(/http:\/\/([^:]+):/) || [])[1] || '',
+      };
+      members.push(member);
+      if (member.uuid === coordinatorId) coordinator = member;
+    }
+    if (!coordinator) coordinator = members[0];
+    if (!coordinator || !coordinator.host) continue;
+    speakers.push({
+      host: coordinator.host,
+      room: coordinator.room,
+      group: members.map(m => m.room),
+    });
+  }
+  return speakers.sort((a, b) => a.room.localeCompare(b.room));
+}
+
 // Fetch album art bytes through curl so the browser never needs
 // local-network access to the speaker itself.
 async function fetchArt(url) {
@@ -106,5 +145,5 @@ async function fetchArt(url) {
 
 module.exports = {
   getRoomName, getState, next, previous, play, pause, fetchArt,
-  getVolume, setVolume,
+  getVolume, setVolume, listSpeakers,
 };

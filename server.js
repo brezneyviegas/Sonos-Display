@@ -3,8 +3,8 @@ const path = require('path');
 const sonos = require('./sonos-curl');
 
 const PORT = process.env.PORT || 3000;
-// Speaker IP. Find yours in the Sonos app: Settings -> System -> About My System.
-const HOST = process.env.SONOS_HOST || '192.168.5.242';
+// Initial speaker IP. Find yours in the Sonos app: Settings -> System -> About My System.
+let HOST = process.env.SONOS_HOST || '192.168.5.242';
 
 const app = express();
 app.use(express.json());
@@ -12,6 +12,30 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 let roomName = '';
 sonos.getRoomName(HOST).then(name => { roomName = name; }).catch(() => {});
+
+app.get('/api/speakers', async (req, res) => {
+  try {
+    const speakers = await sonos.listSpeakers(HOST);
+    res.json({ current: HOST, speakers });
+  } catch (err) {
+    res.status(503).json({ error: err.message });
+  }
+});
+
+app.post('/api/speaker', async (req, res) => {
+  try {
+    const host = String(req.body.host || '');
+    // Only allow hosts that the topology actually reports
+    const speakers = await sonos.listSpeakers(HOST);
+    const target = speakers.find(s => s.host === host);
+    if (!target) return res.status(400).json({ error: 'Unknown speaker' });
+    HOST = target.host;
+    roomName = target.room;
+    res.json({ ok: true, room: roomName });
+  } catch (err) {
+    res.status(503).json({ error: err.message });
+  }
+});
 
 app.get('/api/state', async (req, res) => {
   try {

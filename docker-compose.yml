@@ -1,0 +1,12 @@
+services:
+  sonos-display:
+    build: .
+    container_name: sonos-display
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # IP of any Sonos speaker in your household (Sonos app:
+      # Settings -> System -> About My System). You can switch
+      # rooms from the UI after startup.
+      - SONOS_HOST=192.168.5.177

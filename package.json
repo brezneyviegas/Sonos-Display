@@ -19,7 +19,6 @@
   },
   "homepage": "https://github.com/brezneyviegas/Sonos-Display#readme",
   "dependencies": {
-    "express": "^5.2.1",
-    "sonos": "^1.14.3"
+    "express": "^5.2.1"
   }
 }

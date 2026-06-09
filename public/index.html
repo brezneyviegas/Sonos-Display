@@ -100,6 +100,38 @@
     0% { opacity: 0.9; }
     100% { opacity: 0; }
   }
+
+  #volume-overlay {
+    position: fixed;
+    top: 50%;
+    right: 28px;
+    transform: translateY(-50%);
+    width: 8px;
+    height: 40vh;
+    border-radius: 4px;
+    background: rgba(255,255,255,0.2);
+    opacity: 0;
+    transition: opacity 0.25s ease;
+    z-index: 20;
+    pointer-events: none;
+  }
+  #volume-overlay.visible { opacity: 1; }
+  #volume-fill {
+    position: absolute;
+    bottom: 0;
+    width: 100%;
+    border-radius: 4px;
+    background: #fff;
+    height: 0%;
+  }
+  #volume-label {
+    position: absolute;
+    bottom: -34px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 16px;
+    font-weight: 600;
+  }
 </style>
 </head>
 <body>
@@ -115,6 +147,10 @@
   <div id="zone-next" class="zone"><span class="arrow">&#10095;</span></div>
   <div id="progress"></div>
   <div id="status"></div>
+  <div id="volume-overlay">
+    <div id="volume-fill"></div>
+    <div id="volume-label"></div>
+  </div>
 
 <script>
   const $ = id => document.getElementById(id);
@@ -171,6 +207,82 @@
     if (e.key === 'ArrowLeft') action('previous', 'zone-prev');
     if (e.key === 'ArrowRight') action('next', 'zone-next');
     if (e.key === ' ') { e.preventDefault(); action('playpause', 'zone-play'); }
+  });
+
+  // --- Volume: two-finger swipe up = louder, down = quieter ---
+  let volume = null;
+  let pendingDelta = 0;
+  let flushTimer = null;
+  let hideTimer = null;
+
+  fetch('/api/volume').then(r => r.json()).then(v => { volume = v.volume; }).catch(() => {});
+
+  function showVolume(v) {
+    $('volume-fill').style.height = v + '%';
+    $('volume-label').textContent = v;
+    $('volume-overlay').classList.add('visible');
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => $('volume-overlay').classList.remove('visible'), 1200);
+  }
+
+  function adjustVolume(steps) {
+    if (volume === null || steps === 0) return;
+    volume = Math.max(0, Math.min(100, volume + steps));
+    showVolume(volume);
+    pendingDelta += steps;
+    if (!flushTimer) {
+      flushTimer = setTimeout(async () => {
+        const delta = pendingDelta;
+        pendingDelta = 0;
+        flushTimer = null;
+        try {
+          const res = await fetch('/api/volume/adjust', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ delta }),
+          });
+          const v = await res.json();
+          if (typeof v.volume === 'number' && pendingDelta === 0) {
+            volume = v.volume;
+            showVolume(volume);
+          }
+        } catch (e) { /* next adjust resyncs */ }
+      }, 200);
+    }
+  }
+
+  // Trackpad two-finger swipe arrives as wheel events. With natural
+  // scrolling (macOS default) fingers-up gives positive deltaY.
+  let wheelAccum = 0;
+  document.addEventListener('wheel', e => {
+    e.preventDefault();
+    wheelAccum += e.deltaY;
+    const steps = Math.trunc(wheelAccum / 25);
+    if (steps !== 0) {
+      wheelAccum -= steps * 25;
+      adjustVolume(steps);
+    }
+  }, { passive: false });
+
+  // Touchscreen: two-finger vertical drag
+  let touchY = null;
+  document.addEventListener('touchstart', e => {
+    if (e.touches.length === 2) {
+      touchY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+    }
+  });
+  document.addEventListener('touchmove', e => {
+    if (e.touches.length !== 2 || touchY === null) return;
+    e.preventDefault();
+    const y = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+    const steps = Math.trunc((touchY - y) / 8); // fingers up = louder
+    if (steps !== 0) {
+      touchY = y;
+      adjustVolume(steps);
+    }
+  }, { passive: false });
+  document.addEventListener('touchend', e => {
+    if (e.touches.length < 2) touchY = null;
   });
 
   refresh();

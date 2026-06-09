@@ -15,17 +15,18 @@ function curl(args, { binary = false } = {}) {
   });
 }
 
-function soap(host, action, body) {
+function soap(host, action, body, service = 'AVTransport') {
+  const urn = `urn:schemas-upnp-org:service:${service}:1`;
   const envelope =
     '<?xml version="1.0" encoding="utf-8"?>' +
     '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" ' +
     's:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/"><s:Body>' +
-    `<u:${action} xmlns:u="urn:schemas-upnp-org:service:AVTransport:1">` +
+    `<u:${action} xmlns:u="${urn}">` +
     `<InstanceID>0</InstanceID>${body || ''}</u:${action}>` +
     '</s:Body></s:Envelope>';
   return curl([
-    `http://${host}:1400/MediaRenderer/AVTransport/Control`,
-    '-H', `SOAPACTION: "urn:schemas-upnp-org:service:AVTransport:1#${action}"`,
+    `http://${host}:1400/MediaRenderer/${service}/Control`,
+    '-H', `SOAPACTION: "${urn}#${action}"`,
     '-H', 'Content-Type: text/xml; charset=utf-8',
     '--data-binary', envelope,
   ]);
@@ -82,6 +83,17 @@ const previous = host => soap(host, 'Previous');
 const play = host => soap(host, 'Play', '<Speed>1</Speed>');
 const pause = host => soap(host, 'Pause');
 
+async function getVolume(host) {
+  const xml = await soap(host, 'GetVolume', '<Channel>Master</Channel>', 'RenderingControl');
+  return parseInt(tag(xml, 'CurrentVolume'), 10) || 0;
+}
+
+function setVolume(host, volume) {
+  const v = Math.max(0, Math.min(100, Math.round(volume)));
+  return soap(host, 'SetVolume',
+    `<Channel>Master</Channel><DesiredVolume>${v}</DesiredVolume>`, 'RenderingControl');
+}
+
 // Fetch album art bytes through curl so the browser never needs
 // local-network access to the speaker itself.
 async function fetchArt(url) {
@@ -92,4 +104,7 @@ async function fetchArt(url) {
   return curl([url], { binary: true });
 }
 
-module.exports = { getRoomName, getState, next, previous, play, pause, fetchArt };
+module.exports = {
+  getRoomName, getState, next, previous, play, pause, fetchArt,
+  getVolume, setVolume,
+};

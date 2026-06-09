@@ -7,6 +7,7 @@ const PORT = process.env.PORT || 3000;
 const HOST = process.env.SONOS_HOST || '192.168.5.242';
 
 const app = express();
+app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 let roomName = '';
@@ -47,6 +48,28 @@ for (const [route, fn] of [
     }
   });
 }
+
+app.get('/api/volume', async (req, res) => {
+  try {
+    res.json({ volume: await sonos.getVolume(HOST) });
+  } catch (err) {
+    res.status(503).json({ error: err.message });
+  }
+});
+
+// Relative adjust done server-side so concurrent swipes can't race a stale
+// client-cached value
+app.post('/api/volume/adjust', async (req, res) => {
+  try {
+    const delta = Number(req.body.delta) || 0;
+    const current = await sonos.getVolume(HOST);
+    const target = Math.max(0, Math.min(100, current + delta));
+    if (target !== current) await sonos.setVolume(HOST, target);
+    res.json({ volume: target });
+  } catch (err) {
+    res.status(503).json({ error: err.message });
+  }
+});
 
 app.post('/api/playpause', async (req, res) => {
   try {

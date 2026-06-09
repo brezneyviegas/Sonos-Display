@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sonos Display</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    background: #000;
+    color: #fff;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  #bg {
+    position: fixed;
+    inset: -40px;
+    background-size: cover;
+    background-position: center;
+    filter: blur(40px) brightness(0.35);
+    transition: background-image 0.6s ease;
+  }
+
+  #content {
+    position: relative;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+    padding: 24px;
+    text-align: center;
+  }
+
+  #art {
+    width: min(55vh, 80vw);
+    height: min(55vh, 80vw);
+    border-radius: 12px;
+    background: #222 center/cover no-repeat;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+    transition: opacity 0.3s ease;
+  }
+
+  #title  { font-size: clamp(24px, 4.5vw, 48px); font-weight: 700; }
+  #artist { font-size: clamp(16px, 3vw, 30px); opacity: 0.8; }
+  #room   { position: fixed; top: 16px; left: 0; right: 0; font-size: 14px; opacity: 0.5; letter-spacing: 2px; text-transform: uppercase; }
+
+  #progress {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    height: 4px;
+    background: #fff;
+    opacity: 0.7;
+    width: 0%;
+    transition: width 1s linear;
+  }
+
+  #status {
+    position: fixed;
+    bottom: 20px;
+    left: 0;
+    right: 0;
+    font-size: 14px;
+    opacity: 0.5;
+  }
+
+  /* Click zones */
+  .zone {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    width: 35%;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+  }
+  #zone-prev { left: 0; justify-content: flex-start; }
+  #zone-next { right: 0; justify-content: flex-end; }
+  #zone-play { left: 35%; width: 30%; }
+
+  .zone .arrow {
+    font-size: 64px;
+    opacity: 0;
+    padding: 0 24px;
+    transition: opacity 0.15s ease;
+  }
+  .zone:hover .arrow { opacity: 0.4; }
+  .zone:active .arrow { opacity: 0.9; }
+
+  .flash { animation: flash 0.25s ease; }
+  @keyframes flash {
+    0% { opacity: 0.9; }
+    100% { opacity: 0; }
+  }
+</style>
+</head>
+<body>
+  <div id="bg"></div>
+  <div id="content">
+    <div id="room"></div>
+    <div id="art"></div>
+    <div id="title">Connecting to Sonos…</div>
+    <div id="artist"></div>
+  </div>
+  <div id="zone-prev" class="zone"><span class="arrow">&#10094;</span></div>
+  <div id="zone-play" class="zone"></div>
+  <div id="zone-next" class="zone"><span class="arrow">&#10095;</span></div>
+  <div id="progress"></div>
+  <div id="status"></div>
+
+<script>
+  const $ = id => document.getElementById(id);
+  let currentArt = '';
+
+  async function refresh() {
+    try {
+      const res = await fetch('/api/state');
+      if (!res.ok) throw new Error((await res.json()).error || res.statusText);
+      const s = await res.json();
+
+      $('room').textContent = s.room || '';
+      $('title').textContent = s.title || (s.playing ? 'Unknown track' : 'Nothing playing');
+      $('artist').textContent = [s.artist, s.album].filter(Boolean).join(' — ');
+      $('status').textContent = s.playing ? '' : 'Paused — tap center to play';
+
+      if (s.albumArt && s.albumArt !== currentArt) {
+        currentArt = s.albumArt;
+        $('art').style.backgroundImage = `url("${s.albumArt}")`;
+        $('bg').style.backgroundImage = `url("${s.albumArt}")`;
+      } else if (!s.albumArt && currentArt) {
+        currentArt = '';
+        $('art').style.backgroundImage = '';
+        $('bg').style.backgroundImage = '';
+      }
+
+      const pct = s.duration > 0 ? (s.position / s.duration) * 100 : 0;
+      $('progress').style.width = pct + '%';
+    } catch (err) {
+      $('title').textContent = 'No Sonos found';
+      $('artist').textContent = err.message;
+      $('status').textContent = 'Retrying…';
+    }
+  }
+
+  async function action(name, zoneId) {
+    const arrow = document.querySelector(`#${zoneId} .arrow`);
+    if (arrow) {
+      arrow.classList.remove('flash');
+      void arrow.offsetWidth;
+      arrow.classList.add('flash');
+    }
+    try {
+      await fetch('/api/' + name, { method: 'POST' });
+    } catch (e) { /* state refresh will show error */ }
+    setTimeout(refresh, 400);
+  }
+
+  $('zone-prev').addEventListener('click', () => action('previous', 'zone-prev'));
+  $('zone-next').addEventListener('click', () => action('next', 'zone-next'));
+  $('zone-play').addEventListener('click', () => action('playpause', 'zone-play'));
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowLeft') action('previous', 'zone-prev');
+    if (e.key === 'ArrowRight') action('next', 'zone-next');
+    if (e.key === ' ') { e.preventDefault(); action('playpause', 'zone-play'); }
+  });
+
+  refresh();
+  setInterval(refresh, 2000);
+</script>
+</body>
+</html>

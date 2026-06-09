@@ -1,0 +1,25 @@
+{
+  "name": "sonos-display",
+  "version": "1.0.0",
+  "description": "Web display for currently playing Sonos track with click-to-skip",
+  "main": "index.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/brezneyviegas/Sonos-Display.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/brezneyviegas/Sonos-Display/issues"
+  },
+  "homepage": "https://github.com/brezneyviegas/Sonos-Display#readme",
+  "dependencies": {
+    "express": "^5.2.1",
+    "sonos": "^1.14.3"
+  }
+}

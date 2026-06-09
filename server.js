@@ -1,104 +1,63 @@
 const express = require('express');
 const path = require('path');
-const { AsyncDeviceDiscovery, Sonos } = require('sonos');
+const sonos = require('./sonos-curl');
 
 const PORT = process.env.PORT || 3000;
-// Optionally pin a speaker: SONOS_HOST=192.168.1.50 node server.js
-const PINNED_HOST = process.env.SONOS_HOST;
-// Optionally pick a room by name: SONOS_ROOM="Living Room" node server.js
-const ROOM = process.env.SONOS_ROOM;
+// Speaker IP. Find yours in the Sonos app: Settings -> System -> About My System.
+const HOST = process.env.SONOS_HOST || '192.168.5.242';
 
 const app = express();
 app.use(express.static(path.join(__dirname, 'public')));
 
-let device = null;
-
-async function getDevice() {
-  if (device) return device;
-  if (PINNED_HOST) {
-    device = new Sonos(PINNED_HOST);
-    return device;
-  }
-  const discovery = new AsyncDeviceDiscovery();
-  if (ROOM) {
-    const { devices } = await discovery.discoverMultiple({ timeout: 5000 });
-    for (const d of devices) {
-      const desc = await d.deviceDescription();
-      if (desc.roomName.toLowerCase() === ROOM.toLowerCase()) {
-        device = d;
-        return device;
-      }
-    }
-    throw new Error(`Room "${ROOM}" not found`);
-  }
-  device = await discovery.discover();
-  return device;
-}
-
-// Reset cached device on failure so next request re-discovers
-function dropDevice() {
-  device = null;
-}
+let roomName = '';
+sonos.getRoomName(HOST).then(name => { roomName = name; }).catch(() => {});
 
 app.get('/api/state', async (req, res) => {
   try {
-    const d = await getDevice();
-    const [track, state, desc] = await Promise.all([
-      d.currentTrack(),
-      d.getCurrentState(),
-      d.deviceDescription(),
-    ]);
-    res.json({
-      room: desc.roomName,
-      playing: state === 'playing',
-      title: track.title || '',
-      artist: track.artist || '',
-      album: track.album || '',
-      albumArt: track.albumArtURL || '',
-      position: track.position || 0,
-      duration: track.duration || 0,
-    });
+    const state = await sonos.getState(HOST);
+    if (state.albumArt) {
+      state.albumArt = '/api/art?u=' + encodeURIComponent(state.albumArt);
+    }
+    res.json({ room: roomName, ...state });
   } catch (err) {
-    dropDevice();
     res.status(503).json({ error: err.message });
   }
 });
 
-app.post('/api/next', async (req, res) => {
+// Proxy album art so the browser only ever talks to this server
+app.get('/api/art', async (req, res) => {
   try {
-    const d = await getDevice();
-    await d.next();
-    res.json({ ok: true });
+    const buf = await sonos.fetchArt(req.query.u);
+    res.set('Cache-Control', 'max-age=3600').type('image/jpeg').send(buf);
   } catch (err) {
-    dropDevice();
-    res.status(503).json({ error: err.message });
+    res.status(502).end();
   }
 });
 
-app.post('/api/previous', async (req, res) => {
-  try {
-    const d = await getDevice();
-    await d.previous();
-    res.json({ ok: true });
-  } catch (err) {
-    dropDevice();
-    res.status(503).json({ error: err.message });
-  }
-});
+for (const [route, fn] of [
+  ['next', sonos.next],
+  ['previous', sonos.previous],
+]) {
+  app.post(`/api/${route}`, async (req, res) => {
+    try {
+      await fn(HOST);
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(503).json({ error: err.message });
+    }
+  });
+}
 
 app.post('/api/playpause', async (req, res) => {
   try {
-    const d = await getDevice();
-    const state = await d.getCurrentState();
-    if (state === 'playing') await d.pause();
-    else await d.play();
+    const { playing } = await sonos.getState(HOST);
+    await (playing ? sonos.pause(HOST) : sonos.play(HOST));
     res.json({ ok: true });
   } catch (err) {
-    dropDevice();
     res.status(503).json({ error: err.message });
   }
 });
 
 app.listen(PORT, () => {
-  console.log(`Sonos Display running at http://localhost:${PORT}`);
+  console.log(`Sonos Display running at http://localhost:${PORT} (speaker: ${HOST})`);
 });

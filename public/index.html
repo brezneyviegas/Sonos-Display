@@ -38,13 +38,78 @@
     text-align: center;
   }
 
-  #art {
+  #art-wrap {
+    position: relative;
     width: min(55vh, 80vw);
     height: min(55vh, 80vw);
+    perspective: 1600px;
+  }
+
+  /* the flipping card holding cover (front) and record (back) */
+  #flipper {
+    position: absolute;
+    inset: 0;
+    transform-style: preserve-3d;
+    transition: transform 0.8s cubic-bezier(.4,.05,.2,1);
+  }
+  #art-wrap.playing #flipper { transform: rotateY(180deg); }
+
+  #art, #vinyl {
+    position: absolute;
+    inset: 0;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+  }
+
+  #vinyl {
+    border-radius: 50%;
+    /* face the back of the card so it shows after the flip */
+    transform: rotateY(180deg);
+    background:
+      radial-gradient(circle at 50% 50%, #000 0 1.5%, transparent 1.5%),
+      repeating-radial-gradient(circle at 50% 50%, #232323 0 1px, #0c0c0c 1px 5px),
+      #111;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.7);
+    rotate: 0deg;
+    animation: spin 6s linear infinite;
+    animation-play-state: paused;
+  }
+  #art-wrap.playing #vinyl { animation-play-state: running; }
+
+  /* center label = album art */
+  #vinyl::after {
+    content: "";
+    position: absolute;
+    inset: 31%;
+    border-radius: 50%;
+    background: #333 center/cover no-repeat;
+    background-image: var(--label, none);
+    box-shadow: 0 0 0 2px rgba(0,0,0,0.4), inset 0 0 0 3px rgba(255,255,255,0.06);
+  }
+
+  /* spindle hole */
+  #vinyl::before {
+    content: "";
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 3%; height: 3%;
+    transform: translate(-50%, -50%);
+    border-radius: 50%;
+    background: #000;
+    box-shadow: 0 0 0 2px rgba(255,255,255,0.08);
+    z-index: 2;
+  }
+
+  @keyframes spin {
+    to { rotate: -360deg; }
+  }
+
+  #art {
+    width: 100%;
+    height: 100%;
     border-radius: 12px;
     background: #222 center/cover no-repeat;
     box-shadow: 0 20px 60px rgba(0,0,0,0.6);
-    transition: opacity 0.3s ease;
   }
 
   #title  { font-size: clamp(24px, 4.5vw, 48px); font-weight: 700; }
@@ -197,7 +262,12 @@
   <div id="bg"></div>
   <div id="content">
     <div id="room"></div>
-    <div id="art"></div>
+    <div id="art-wrap">
+      <div id="flipper">
+        <div id="art"></div>
+        <div id="vinyl"></div>
+      </div>
+    </div>
     <div id="title">Connecting to Sonos…</div>
     <div id="artist"></div>
   </div>
@@ -236,11 +306,15 @@
         currentArt = s.albumArt;
         $('art').style.backgroundImage = `url("${s.albumArt}")`;
         $('bg').style.backgroundImage = `url("${s.albumArt}")`;
+        $('vinyl').style.setProperty('--label', `url("${s.albumArt}")`);
       } else if (!s.albumArt && currentArt) {
         currentArt = '';
         $('art').style.backgroundImage = '';
         $('bg').style.backgroundImage = '';
+        $('vinyl').style.removeProperty('--label');
       }
+
+      $('art-wrap').classList.toggle('playing', !!s.playing);
 
       const pct = s.duration > 0 ? (s.position / s.duration) * 100 : 0;
       $('progress').style.width = pct + '%';
